@@ -1,5 +1,5 @@
 """
-HelperX Bot — Firebase Sync v1.2
+HelperX Bot — Firebase Sync v1.3
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Bidirektionaler Sync zwischen lokalen JSON-Dateien und Firebase.
   Dashboard schreibt → Firebase → dieser Sync → lokale JSON → Bot liest
@@ -8,12 +8,11 @@ HelperX Bot — Firebase Sync v1.2
 """
 
 import os
-import re
 import json
 import time
 import threading
 import logging
-import textwrap
+import tempfile
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  KONFIGURATION
@@ -57,28 +56,6 @@ def _save_json(path: str, data: dict):
 #  FIREBASE INITIALISIERUNG
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _fix_private_key(pk: str) -> str | None:
-    """
-    Bereinigt den Private Key vollständig:
-    1. Alle Escape-Varianten von \\n → echte Newlines
-    2. Base64-Content extrahieren, Whitespace entfernen
-    3. PEM sauber bei 64 Zeichen neu aufbauen
-    """
-    # Alle Escape-Varianten fixen
-    pk = pk.replace("\\\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
-
-    # Base64-Content zwischen BEGIN/END extrahieren
-    match = re.search(r"-----BEGIN PRIVATE KEY-----(.+?)-----END PRIVATE KEY-----", pk, re.DOTALL)
-    if not match:
-        log.error("❌ PEM-Header/Footer nicht gefunden im Private Key!")
-        return None
-
-    b64 = re.sub(r'\s+', '', match.group(1))       # Alles Whitespace raus
-    b64 = "\n".join(textwrap.wrap(b64, 64))         # Sauber bei 64 Zeichen umbrechen
-
-    return f"-----BEGIN PRIVATE KEY-----\n{b64}\n-----END PRIVATE KEY-----\n"
-
-
 def _init_firebase() -> bool:
     global _firebase_ready
     try:
@@ -97,25 +74,20 @@ def _init_firebase() -> bool:
         return False
 
     try:
-        cred_dict = json.loads(cred_json)
+        # Raw JSON direkt als Temp-Datei schreiben
+        # → firebase_admin parsed \n korrekt selbst, keine manuelle Key-Manipulation nötig
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+            f.write(cred_json)
+            tmp_path = f.name
 
-        pk = _fix_private_key(cred_dict.get("private_key", ""))
-        if pk is None:
-            return False
-
-        cred_dict["private_key"] = pk
-
-        log.info(
-            f"🔑 Key: Länge={len(pk)}, Newlines={pk.count(chr(10))}, "
-            f"Start='{pk[:27]}', Ende='{pk[-26:].strip()}'"
-        )
-
-        # Dict direkt übergeben (kein Temp-File — json.dump würde Newlines wieder escapen)
-        cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DB_URL})
-        log.info("✅ Firebase Admin SDK erfolgreich initialisiert.")
-        _firebase_ready = True
-        return True
+        try:
+            cred = credentials.Certificate(tmp_path)
+            firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DB_URL})
+            log.info("✅ Firebase Admin SDK erfolgreich initialisiert.")
+            _firebase_ready = True
+            return True
+        finally:
+            os.unlink(tmp_path)  # Temp-Datei sofort löschen
 
     except Exception as e:
         log.error(f"❌ Firebase Initialisierungs-Fehler: {e}")
