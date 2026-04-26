@@ -73,11 +73,24 @@ def _init_firebase() -> bool:
         return False
 
     try:
+        import tempfile
         cred_dict = json.loads(cred_json)
-        # Private Key Zeilenumbrüche reparieren (Railway kodiert \n manchmal falsch)
-        if "private_key" in cred_dict:
-            cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
-        cred = credentials.Certificate(cred_dict)
+
+        # Private Key Zeilenumbrüche reparieren (Railway kodiert \n oft falsch)
+        pk = cred_dict.get("private_key", "")
+        pk = pk.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+        cred_dict["private_key"] = pk
+
+        # In temporäre Datei schreiben (zuverlässiger als dict direkt)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as tmp:
+            json.dump(cred_dict, tmp, ensure_ascii=False)
+            tmp_path = tmp.name
+
+        cred = credentials.Certificate(tmp_path)
+        os.unlink(tmp_path)  # Temp-Datei sofort löschen
+
         firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DB_URL})
         log.info("✅ Firebase Admin SDK erfolgreich initialisiert.")
         _firebase_ready = True
