@@ -6,6 +6,15 @@ import traceback
 import shutil
 import sys
 
+# ── Firebase Sync ────────────────────────────────────────────────────────────
+import threading
+try:
+    import firebase_sync as _firebase_sync
+    _FIREBASE_SYNC_AVAILABLE = True
+except ImportError:
+    _FIREBASE_SYNC_AVAILABLE = False
+    logging.warning("⚠️  firebase_sync.py nicht gefunden — Dashboard-Sync deaktiviert.")
+
 # Cache löschen
 if os.path.exists("./features/__pycache__"):
     shutil.rmtree("./features/__pycache__")
@@ -143,6 +152,18 @@ async def sync(ctx: commands.Context):
 @bot.event
 async def on_ready():
     logging.info(f"✅ {bot.user} ist online! (v{BOT_VERSION} | Modus: {BOT_MODE})")
+
+    # ── Firebase Sync starten ────────────────────────────────────────────────
+    if _FIREBASE_SYNC_AVAILABLE:
+        threading.Thread(
+            target=_firebase_sync.start_sync,
+            daemon=True,
+            name="firebase-sync",
+        ).start()
+        logging.info("🔥 Firebase Sync-Thread gestartet.")
+    else:
+        logging.warning("⚠️  Firebase Sync nicht verfügbar.")
+
     logging.info(f"📋 Registrierte Commands: {[c.name for c in bot.tree.get_commands()]}")
     logging.info(f"🏠 Aktive Server: {len(bot.guilds)}")
     logging.info(f"🔍 Intents — members: {bot.intents.members} | presences: {bot.intents.presences}")
