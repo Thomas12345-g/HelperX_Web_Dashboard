@@ -1,5 +1,5 @@
 """
-HelperX Bot — Firebase Sync v1.0
+HelperX Bot — Firebase Sync v1.1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Bidirektionaler Sync zwischen lokalen JSON-Dateien und Firebase.
   Dashboard schreibt → Firebase → dieser Sync → lokale JSON → Bot liest
@@ -68,20 +68,29 @@ def _init_firebase() -> bool:
     if not cred_json:
         log.error(
             "❌ Umgebungsvariable FIREBASE_CREDENTIALS nicht gesetzt!\n"
-            "   Trage den Service Account Key JSON als Railway-Variable ein."
+            "   Trage den Service Account Key JSON als Render-Variable ein."
         )
         return False
 
     try:
         cred_dict = json.loads(cred_json)
 
-        # Private Key reparieren: \n (Text) → echte Zeilenumbrüche
         pk = cred_dict.get("private_key", "")
-        # Nach json.loads enthält Railway's Key noch \\n als Text → ersetzen
-        pk = pk.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+
+        # Alle Escape-Varianten abfangen (einfach, doppelt, gemischt)
+        pk = pk.replace("\\\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+
+        # PEM-Struktur Zeile für Zeile sauber rekonstruieren
+        lines = [l.strip() for l in pk.split("\n") if l.strip()]
+        pk = "\n".join(lines) + "\n"
+
         cred_dict["private_key"] = pk
 
-        log.info(f"🔑 Key OK: Länge={len(pk)}, Newlines={pk.count(chr(10))}")
+        # Debug-Log zur Validierung
+        log.info(
+            f"🔑 Key: Länge={len(pk)}, Newlines={pk.count(chr(10))}, "
+            f"Start='{pk[:27]}', Ende='{pk[-26:].strip()}'"
+        )
 
         # Dict direkt übergeben (kein Temp-File — json.dump würde Newlines wieder escapen)
         cred = credentials.Certificate(cred_dict)
@@ -89,6 +98,7 @@ def _init_firebase() -> bool:
         log.info("✅ Firebase Admin SDK erfolgreich initialisiert.")
         _firebase_ready = True
         return True
+
     except Exception as e:
         log.error(f"❌ Firebase Initialisierungs-Fehler: {e}")
         return False
