@@ -73,27 +73,18 @@ def _init_firebase() -> bool:
         return False
 
     try:
-        import tempfile
         cred_dict = json.loads(cred_json)
 
-        # Debug: Private Key Format prüfen
+        # Private Key reparieren: \n (Text) → echte Zeilenumbrüche
         pk = cred_dict.get("private_key", "")
-        log.info(f"🔑 Key-Länge: {len(pk)} | Anfang: {repr(pk[:40])} | Ende: {repr(pk[-30:])}")
-
-        # Alle möglichen Zeilenumbruch-Varianten reparieren
+        # Nach json.loads enthält Railway's Key noch \\n als Text → ersetzen
         pk = pk.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
         cred_dict["private_key"] = pk
 
-        # In temporäre Datei schreiben
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as tmp:
-            json.dump(cred_dict, tmp, ensure_ascii=False)
-            tmp_path = tmp.name
+        log.info(f"🔑 Key OK: Länge={len(pk)}, Newlines={pk.count(chr(10))}")
 
-        cred = credentials.Certificate(tmp_path)
-        os.unlink(tmp_path)
-
+        # Dict direkt übergeben (kein Temp-File — json.dump würde Newlines wieder escapen)
+        cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DB_URL})
         log.info("✅ Firebase Admin SDK erfolgreich initialisiert.")
         _firebase_ready = True
